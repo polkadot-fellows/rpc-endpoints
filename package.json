@@ -1,0 +1,47 @@
+{
+  "name": "@polkadot-fellows/rpc-endpoints",
+  "version": "0.1.0",
+  "description": "Lists of public RPC endpoints for the Polkadot ecosystem chains",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/polkadot-fellows/rpc-endpoints.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
+    },
+    "./rpc/*.json": "./rpc/*.json"
+  },
+  "files": [
+    "dist",
+    "rpc"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check:endpoints": "node src/check-endpoints.ts",
+    "prepublishOnly": "npm run build",
+    "test": "node --test test/validate.test.ts",
+    "typecheck": "tsc",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2",
+    "ws": "^8.22.0"
+  }
+}
