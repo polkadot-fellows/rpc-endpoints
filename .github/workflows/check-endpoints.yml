@@ -1,0 +1,31 @@
+name: Check endpoints
+
+# Checks all the (enabled) endpoints and opens (or updates) a PR disabling the failing ones
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:endpoints -- --disable-failing --report ${{ runner.temp }}/report.md
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: bot/disable-endpoints
+          delete-branch: true
+          commit-message: Disable failing RPC endpoints
+          title: Disable failing RPC endpoints
+          body-path: ${{ runner.temp }}/report.md
+          labels: bot
