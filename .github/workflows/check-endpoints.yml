@@ -1,0 +1,41 @@
+name: Check endpoints
+
+# Checks all the (enabled) endpoints and opens (or updates) an issue listing the failing ones
+on:
+  schedule:
+    - cron: '0 3 * * 1' # every Monday at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: check
+        run: npm run check:endpoints -- --report ${{ runner.temp }}/report.md
+      - if: failure() && steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/report.md
+          TITLE: Failing RPC endpoints
+        run: |
+          # no report means the check itself crashed, see its logs
+          [ -f "$REPORT" ] || exit 1
+
+          number=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title \
+            --jq "map(select(.title == \"$TITLE\")) | .[0].number // empty")
+
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$REPORT"
+          else
+            gh issue create --title "$TITLE" --body-file "$REPORT"
+          fi

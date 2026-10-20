@@ -1,0 +1,14 @@
+[
+  {
+    "name": "LuckyFriday",
+    "rpc": "wss://rpc-bulletin.luckyfriday.io"
+  },
+  {
+    "name": "Parity",
+    "rpc": "wss://bulletin-rpc.polkadot.io"
+  },
+  {
+    "name": "Spectrum",
+    "rpc": "wss://spectrum-03.simplystaking.xyz/cG9sa2Fkb3QtMDMtOTFkMmYwZGYtcG9sa2Fkb3Q/9QbAeudedsupNA/polkadotbulletin/mainnet/"
+  }
+]
