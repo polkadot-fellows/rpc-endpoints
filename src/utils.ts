@@ -7,8 +7,9 @@ import fs from 'node:fs';
 const RPC_DIR = new URL('../rpc/', import.meta.url);
 
 export interface RpcFile {
+  // the file name without the extension, e.g. 'asset-hub-polkadot'
+  chain: string;
   content: unknown;
-  file: string;
 }
 
 /**
@@ -20,8 +21,8 @@ export function readRpcFiles(): RpcFile[] {
     .filter((file) => file.endsWith('.json'))
     .sort()
     .map((file) => ({
-      content: JSON.parse(fs.readFileSync(new URL(file, RPC_DIR), 'utf-8')) as unknown,
-      file
+      chain: file.slice(0, -'.json'.length),
+      content: JSON.parse(fs.readFileSync(new URL(file, RPC_DIR), 'utf-8')) as unknown
     }));
 }
 
@@ -38,7 +39,7 @@ export function readRpcFilesAt(ref: string): RpcFile[] {
     .filter((path) => path.endsWith('.json'))
     .sort()
     .map((path) => ({
-      content: JSON.parse(git('show', `${ref}:${path}`)) as unknown,
-      file: path.slice('rpc/'.length)
+      chain: path.slice('rpc/'.length, -'.json'.length),
+      content: JSON.parse(git('show', `${ref}:${path}`)) as unknown
     }));
 }

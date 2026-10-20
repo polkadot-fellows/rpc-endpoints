@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { z } from 'zod';
+import { checkWebRtc } from './webrtc.ts';
 
 interface DnsResponse {
   // the DNS response code, 3 being NXDOMAIN (the domain doesn't exist)
@@ -197,10 +198,12 @@ class RpcClient {
 }
 
 /**
- * Connects to the endpoint and checks that it exposes the required RPC methods
+ * Connects to the endpoint and checks that it exposes the required RPC methods, and that its node is
+ * reachable over WebRTC, returning the warnings (the issues that don't fail the check)
  */
-export async function checkEndpoint(rpc: string, requiredMethods: string[]): Promise<void> {
+export async function checkEndpoint(rpc: string, requiredMethods: string[]): Promise<string[]> {
   const client = new RpcClient(rpc);
+  let listenAddresses: string[];
 
   try {
     const rpcMethods = RpcMethods.safeParse(await client.call('rpc_methods'));
@@ -213,19 +216,36 @@ export async function checkEndpoint(rpc: string, requiredMethods: string[]): Pro
       throw new Error(`Missing RPC methods: ${missingRpcMethods.join(', ')}`);
     }
 
-    const listenAddresses = ListenAddresses.safeParse(await client.call('system_localListenAddresses'));
-    if (!listenAddresses.success) {
+    const parsedListenAddresses = ListenAddresses.safeParse(await client.call('system_localListenAddresses'));
+    if (!parsedListenAddresses.success) {
       throw new Error('Invalid system_localListenAddresses response');
     }
+
+    listenAddresses = parsedListenAddresses.data;
   } finally {
     client.close();
   }
+
+  // the unchecked addresses aren't warned about, as it's this machine that can't probe them
+  const { reachable, unreachable, unchecked } = await checkWebRtc(listenAddresses);
+  const warnings: string[] = [];
+
+  if (!reachable.length && !unreachable.length && !unchecked.length) {
+    warnings.push('No public WebRTC address');
+  }
+
+  if (unreachable.length) {
+    warnings.push(`WebRTC addresses not answering a STUN binding request: ${unreachable.join(', ')}`);
+  }
+
+  return warnings;
 }
 
 /**
- * Checks the endpoint, retrying a few times before failing (with the last error)
+ * Checks the endpoint, retrying a few times before failing (with the last error), returning the
+ * warnings of the successful attempt
  */
-export async function checkEndpointWithRetries(rpc: string, requiredMethods: string[]): Promise<void> {
+export async function checkEndpointWithRetries(rpc: string, requiredMethods: string[]): Promise<string[]> {
   const { hostname } = new URL(rpc);
 
   // fail fast if the dns doesn't exist
@@ -244,9 +264,7 @@ export async function checkEndpointWithRetries(rpc: string, requiredMethods: str
     }
 
     try {
-      await checkEndpoint(rpc, requiredMethods);
-
-      return;
+      return await checkEndpoint(rpc, requiredMethods);
     } catch (error) {
       lastError = error as Error;
     }
