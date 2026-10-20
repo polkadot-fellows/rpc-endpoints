@@ -1,14 +1,10 @@
 # rpc-endpoints
 
-Lists of public RPC endpoints for the Polkadot ecosystem chains.
-
-## Purpose
-
-A list of public RPC endpoints for the Polkadot ecosystem chains, for wallets, dapps and tools to
+Lists of public RPC endpoints for the Polkadot ecosystem chains, for wallets, dapps and tools to
 connect to. Each chain's list is:
 
 - **machine-readable**: a JSON file, validated against a schema;
-- **checked**: new endpoints are checked when they are added, and all the endpoints are re-checked
+- **checked**: ngiew endpoints are checked when they are added, and all the endpoints are re-checked
   weekly, with the failing ones reported in an issue.
 
 ## Adding an endpoint
