@@ -5,7 +5,9 @@
   },
   {
     "name": "Helixstreet",
-    "rpc": "wss://rpc-people-polkadot.helixstreet.io"
+    "rpc": "wss://rpc-people-polkadot.helixstreet.io",
+    "disabled": true,
+    "comment": "Missing statement_* RPC methods"
   },
   {
     "name": "LuckyFriday",
@@ -13,7 +15,9 @@
   },
   {
     "name": "OnFinality",
-    "rpc": "wss://people-polkadot.api.onfinality.io/public-ws"
+    "rpc": "wss://people-polkadot.api.onfinality.io/public-ws",
+    "disabled": true,
+    "comment": "Missing statement_* RPC methods"
   },
   {
     "name": "Parity",

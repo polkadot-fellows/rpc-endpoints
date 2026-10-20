@@ -1,21 +1,54 @@
 import WebSocket from 'ws';
+import { z } from 'zod';
 
 interface DnsResponse {
   // the DNS response code, 3 being NXDOMAIN (the domain doesn't exist)
   Status: number;
 }
 
-interface RpcResponse {
-  error?: { message: string };
-  id: number;
-  result?: unknown;
+/**
+ * Makes a server-controlled value safe to log and to put in the (markdown) report, by keeping
+ * only plain characters (no mentions, links, html or table breaks) and capping the length
+ */
+function sanitize(value: unknown, maxLength = 200): string {
+  const text = String(value)
+    .replace(/[^\w .,:;'"()/=+-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
+
+/**
+ * An (untrusted) JSON-RPC response. The error message is sanitized, while the result is left
+ * as unknown, to be validated by the caller
+ */
+const RpcResponse = z
+  .object({
+    error: z.object({ message: z.unknown().transform((message) => sanitize(message)) }).optional(),
+    id: z.number(),
+    result: z.unknown().optional()
+  })
+  .refine(({ error, result }) => error !== undefined || result !== undefined);
+
+/**
+ * The result of rpc_methods
+ */
+const RpcMethods = z.object({ methods: z.array(z.string()) });
+
+/**
+ * The result of system_localListenAddresses
+ */
+const ListenAddresses = z.array(z.string());
 
 // Endpoints are retried before being reported
 const ATTEMPTS = 3;
 const RETRY_DELAY = 5_000;
 const TIMEOUT = 5_000;
 const DNS_TIMEOUT = 2_000;
+
+// The endpoints are untrusted, so cap what they can send (a response is a few KB)
+const MAX_RESPONSE_SIZE = 1024 * 1024;
 
 // Connect the same way a dapp does from a browser. Some providers reject
 // non-browser clients, e.g. the Node.js built-in WebSocket sends 'User-Agent: node'
@@ -26,7 +59,7 @@ const HEADERS = {
 
 function getErrorReason(error: Error & { code?: string }): string {
   // e.g. 'CERT_HAS_EXPIRED (certificate has expired)'
-  return `${String(error.code)}: ${error.message}`;
+  return `${String(error.code)}: ${sanitize(error.message)}`;
 }
 
 /**
@@ -45,65 +78,154 @@ async function fetchJson<T>(url: string, timeout = DNS_TIMEOUT): Promise<T | nul
 }
 
 /**
- * Connects to the endpoint and checks that it returns a finalized head
+ * A minimal JSON-RPC client over a single websocket connection. The server is untrusted, so
+ * nothing it sends can throw, it fails the pending calls instead (as does any connection issue)
  */
-export function checkEndpoint(rpc: string): Promise<void> {
-  return new Promise((resolve, reject): void => {
-    const websocket = new WebSocket(rpc, { handshakeTimeout: TIMEOUT, headers: HEADERS });
-    const timerId = setTimeout(() => done(new Error('Connection timeout')), TIMEOUT);
+class RpcClient {
+  readonly #websocket: WebSocket;
+  readonly #timerId: NodeJS.Timeout;
+  readonly #opened = Promise.withResolvers<void>();
+  readonly #pending = new Map<number, PromiseWithResolvers<unknown>>();
+  #error: Error | undefined;
+  #nextId = 1;
 
-    function done(error?: Error): void {
-      clearTimeout(timerId);
-      websocket.removeAllListeners();
-      // terminate() can still emit an error (while connecting), which would otherwise be thrown
-      websocket.on('error', () => undefined);
-      websocket.terminate();
+  constructor(rpc: string) {
+    // connecting & all the calls have to complete within the timeout
+    this.#timerId = setTimeout(() => this.#fail(new Error('Connection timeout')), TIMEOUT);
+    // nobody awaits the connection if it fails before the first call
+    this.#opened.promise.catch(() => undefined);
 
-      error ? reject(error) : resolve();
+    this.#websocket = new WebSocket(rpc, {
+      handshakeTimeout: TIMEOUT,
+      headers: HEADERS,
+      maxPayload: MAX_RESPONSE_SIZE
+    });
+
+    this.#websocket.on('unexpected-response', (_, { statusCode, statusMessage }) =>
+      this.#fail(new Error(`Unexpected response. code: '${statusCode}' reason: '${sanitize(statusMessage)}'`))
+    );
+
+    this.#websocket.on('error', (error) => this.#fail(new Error(getErrorReason(error))));
+
+    this.#websocket.on('close', (code, reason) =>
+      this.#fail(new Error(`Disconnected. code: '${code}' reason: '${sanitize(reason)}'`))
+    );
+
+    this.#websocket.on('open', () => this.#opened.resolve());
+
+    this.#websocket.on('message', (data): void => {
+      // a throw inside a listener isn't caught by the promises and would crash the whole run
+      try {
+        this.#onMessage(String(data));
+      } catch {
+        this.#fail(new Error('Invalid response'));
+      }
+    });
+  }
+
+  /**
+   * Calls the method, resolving with its (unvalidated) result
+   */
+  async call(method: string, params: unknown[] = []): Promise<unknown> {
+    await this.#opened.promise;
+
+    if (this.#error) {
+      throw this.#error;
     }
 
-    websocket.on('unexpected-response', (_, { statusCode, statusMessage }) =>
-      done(new Error(`Unexpected response. code: '${statusCode}' reason: '${statusMessage}'`))
-    );
+    const id = this.#nextId++;
+    const pending = Promise.withResolvers<unknown>();
 
-    websocket.on('error', (error) => done(new Error(getErrorReason(error))));
+    this.#pending.set(id, pending);
+    this.#websocket.send(JSON.stringify({ id, jsonrpc: '2.0', method, params }));
 
-    websocket.on('close', (code, reason) =>
-      done(new Error(`Disconnected. code: '${code}' reason: '${reason.toString()}'`))
-    );
+    return pending.promise;
+  }
 
-    websocket.on('open', (): void => {
-      websocket.send(JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'chain_getFinalizedHead', params: [] }));
-    });
+  close(): void {
+    clearTimeout(this.#timerId);
+    this.#websocket.removeAllListeners();
+    // terminate() can still emit an error (while connecting), which would otherwise be thrown
+    this.#websocket.on('error', () => undefined);
+    this.#websocket.terminate();
+  }
 
-    websocket.on('message', (data): void => {
-      let response: RpcResponse;
+  #onMessage(data: string): void {
+    let json: unknown;
 
-      try {
-        response = JSON.parse((data as Buffer).toString('utf8')) as RpcResponse;
-      } catch {
-        done(new Error('Invalid JSON response'));
+    try {
+      json = JSON.parse(data);
+    } catch {
+      this.#fail(new Error('Invalid JSON response'));
+      return;
+    }
 
-        return;
-      }
+    const response = RpcResponse.safeParse(json);
+    if (!response.success) {
+      this.#fail(new Error('Invalid JSON-RPC response'));
+      return;
+    }
+    const { error, id, result } = response.data;
 
-      if (response.error) {
-        done(new Error(`RPC error: ${response.error.message}`));
+    const pending = this.#pending.get(id);
+    if (!pending) {
+      return;
+    }
+    this.#pending.delete(id);
 
-        return;
-      }
+    if (error) {
+      pending.reject(new Error(`RPC error: ${error.message}`));
+      return;
+    }
+    pending.resolve(result);
+  }
 
-      typeof response.result === 'string' && response.result.startsWith('0x')
-        ? done()
-        : done(new Error('Invalid/non-hex finalized head response'));
-    });
-  });
+  #fail(error: Error): void {
+    if (this.#error) {
+      return;
+    }
+
+    this.#error = error;
+    this.close();
+    this.#opened.reject(error);
+
+    for (const { reject } of this.#pending.values()) {
+      reject(error);
+    }
+    this.#pending.clear();
+  }
+}
+
+/**
+ * Connects to the endpoint and checks that it exposes the required RPC methods
+ */
+export async function checkEndpoint(rpc: string, requiredMethods: string[]): Promise<void> {
+  const client = new RpcClient(rpc);
+
+  try {
+    const rpcMethods = RpcMethods.safeParse(await client.call('rpc_methods'));
+    if (!rpcMethods.success) {
+      throw new Error('Invalid rpc_methods response');
+    }
+
+    const missingRpcMethods = requiredMethods.filter((method) => !rpcMethods.data.methods.includes(method));
+    if (missingRpcMethods.length) {
+      throw new Error(`Missing RPC methods: ${missingRpcMethods.join(', ')}`);
+    }
+
+    const listenAddresses = ListenAddresses.safeParse(await client.call('system_localListenAddresses'));
+    if (!listenAddresses.success) {
+      throw new Error('Invalid system_localListenAddresses response');
+    }
+  } finally {
+    client.close();
+  }
 }
 
 /**
  * Checks the endpoint, retrying a few times before failing (with the last error)
  */
-export async function checkEndpointWithRetries(rpc: string): Promise<void> {
+export async function checkEndpointWithRetries(rpc: string, requiredMethods: string[]): Promise<void> {
   const { hostname } = new URL(rpc);
 
   // fail fast if the dns doesn't exist
@@ -122,7 +244,7 @@ export async function checkEndpointWithRetries(rpc: string): Promise<void> {
     }
 
     try {
-      await checkEndpoint(rpc);
+      await checkEndpoint(rpc, requiredMethods);
 
       return;
     } catch (error) {

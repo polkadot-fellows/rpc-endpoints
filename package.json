@@ -28,7 +28,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check:endpoints": "node src/check-endpoints.ts",
-    "prepublishOnly": "npm run build",
+    "prepare": "npm run build",
     "test": "node --test test/validate.test.ts",
     "typecheck": "tsc",
     "lint": "biome check .",

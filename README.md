@@ -2,6 +2,35 @@
 
 Lists of public RPC endpoints for the Polkadot ecosystem chains.
 
+## Purpose
+
+A list of public RPC endpoints for the Polkadot ecosystem chains, for wallets, dapps and tools to
+connect to. Each chain's list is:
+
+- **machine-readable**: a JSON file, validated against a schema;
+- **checked**: new endpoints are checked when they are added, and all the endpoints are re-checked
+  weekly, with the failing ones reported in an issue.
+
+## Adding an endpoint
+
+Anyone running a node that exposes a public RPC endpoint can publish it here by opening a pull
+request that adds it to the chain's `rpc/<chain-id>.json` file (see the [format](#format)):
+
+1. Add `{ "name": "<Provider>", "rpc": "wss://..." }` to the file (one entry per chain).
+2. Run `npm test` to validate the file, and `npm run check:endpoints -- --changed-since upstream/main` to
+   check the new endpoint (with `upstream` pointing to this repository).
+3. Open the PR. CI validates the files and checks the endpoints the PR adds; it must pass before the
+   PR can be merged.
+
+The endpoint must:
+
+- be publicly reachable over `wss://`, without an API key;
+- expose the chain's required RPC methods (e.g. the `statement_*` methods for People, `bitswap_v1_get`
+  for Bulletin), see `REQUIRED_METHODS` in [`src/check-endpoints.ts`](src/check-endpoints.ts).
+
+Endpoints that start failing are reported by the weekly check, and are disabled (`"disabled": true`
+with a `comment`) rather than removed, so they can be re-enabled once fixed.
+
 ## Format
 
 Each chain has a `rpc/<chain-id>.json` file, where `<chain-id>` is the lowercase, dash-separated chain id
@@ -34,7 +63,8 @@ The schema is defined in [`src/schema.ts`](src/schema.ts).
 ## Using the package
 
 ```sh
-npm install @polkadot-fellows/rpc-endpoints
+npm install github:polkadot-fellows/rpc-endpoints
+# or pinned to a tag/commit: github:polkadot-fellows/rpc-endpoints#<ref>
 ```
 
 ```ts
@@ -54,8 +84,8 @@ npm install
 npm test                 # validate the rpc/*.json files against the schema
 npm run typecheck        # type-check the sources
 npm run lint             # lint and check the formatting (npm run lint:fix to fix)
-npm run build            # build the published schema into dist/
-npm run check:endpoints  # connect to every enabled endpoint and check it serves a finalized head
+npm run build            # build the schema into dist/ (also run by npm install)
+npm run check:endpoints  # connect to every enabled endpoint and check it exposes the required RPC methods
 ```
 
 `npm run check:endpoints -- <options>`:

@@ -1,5 +1,5 @@
 /**
- * Checks that the (enabled) endpoints from the rpc/<chain-id>.json files are reachable.
+ * Checks that the (enabled) endpoints from the rpc/<chain-id>.json files are reachable and expose the required RPC methods.
  *
  * Usage: node src/check-endpoints.ts [options]
  *   --changed-since <ref>  only check the endpoints that are new (or newly enabled) compared to the git ref
@@ -19,6 +19,14 @@ interface Failure {
   file: string;
   reason: string;
 }
+
+/**
+ * The RPC methods that the endpoints of a chain must expose, by chain id
+ */
+const REQUIRED_METHODS: Record<string, string[]> = {
+  'bulletin-polkadot': ['bitswap_v1_get'],
+  'people-polkadot': ['statement_submit', 'statement_subscribeStatement', 'statement_unsubscribeStatement']
+};
 
 const { values: args } = parseArgs({
   options: {
@@ -76,7 +84,7 @@ async function main(): Promise<void> {
   await Promise.all(
     toCheck.map(async ({ entry, file }): Promise<void> => {
       try {
-        await checkEndpointWithRetries(entry.rpc);
+        await checkEndpointWithRetries(entry.rpc, REQUIRED_METHODS[file.replace(/\.json$/, '')] ?? []);
         console.log(`✔ ${file} (${entry.name}) @ ${entry.rpc}`);
       } catch (error) {
         const reason = (error as Error).message;
