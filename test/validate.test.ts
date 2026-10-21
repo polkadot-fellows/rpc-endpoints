@@ -4,11 +4,13 @@ import { RpcEndpointsSchema } from '../src/schema.ts';
 import { readRpcFiles } from '../src/utils.ts';
 
 describe('rpc json files are valid', (): void => {
-  for (const { content, file } of readRpcFiles()) {
-    it(`rpc/${file}`, (): void => {
+  for (const { chain, content } of readRpcFiles()) {
+    const file = `rpc/${chain}.json`;
+
+    it(file, (): void => {
       // the file name is the chain id, e.g. asset-hub-polkadot.json
       assert(
-        /^[a-z0-9]+(-[a-z0-9]+)*\.json$/.test(file),
+        /^[a-z0-9]+(-[a-z0-9]+)*$/.test(chain),
         `${file}: the file name should be the (lowercase, dash-separated) chain id`
       );
 

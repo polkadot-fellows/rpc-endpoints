@@ -24,6 +24,10 @@ The endpoint must:
 - expose the chain's required RPC methods (e.g. the `statement_*` methods for People, `bitswap_v1_get`
   for Bulletin), see `REQUIRED_METHODS` in [`src/check-endpoints.ts`](src/check-endpoints.ts).
 
+Its node should also be reachable over WebRTC (for light clients): `system_localListenAddresses` should list
+at least one public `webrtc-direct` address, and all of them should answer a STUN binding request. This is
+only reported as a warning, it doesn't fail the check.
+
 Endpoints that start failing are reported by the weekly check, and are disabled (`"disabled": true`
 with a `comment`) rather than removed, so they can be re-enabled once fixed.
 
@@ -81,17 +85,19 @@ npm test                 # validate the rpc/*.json files against the schema
 npm run typecheck        # type-check the sources
 npm run lint             # lint and check the formatting (npm run lint:fix to fix)
 npm run build            # build the schema into dist/ (also run by npm install)
-npm run check:endpoints  # connect to every enabled endpoint and check it exposes the required RPC methods
+npm run check:endpoints  # check every enabled endpoint (the required RPC methods, and WebRTC as a warning)
 ```
 
 `npm run check:endpoints -- <options>`:
 
 - `--changed-since <ref>`: only check the endpoints that are new (or re-enabled) compared to a git ref
-- `--report <path>`: write a markdown report of the failing endpoints
+- `--report <path>`: write a markdown report of the failing endpoints and of the warnings
 
 ## CI
 
 - **Validate** (every PR and push to `main`): lints, validates the files against the schema, and on PRs checks
   the endpoints the PR adds or re-enables.
 - **Check endpoints** (weekly): checks all the enabled endpoints and opens (or updates) an issue listing
-  the failing ones.
+  the failing ones and the warnings.
+
+The warnings are also shown in the runs' logs, but don't fail them.

@@ -41,7 +41,9 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
+    "ipaddr.js": "^2.5.0",
     "typescript": "^7.0.2",
+    "werift-ice": "^0.2.3",
     "ws": "^8.22.0"
   }
 }
